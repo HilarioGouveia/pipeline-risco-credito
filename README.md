@@ -129,16 +129,3 @@ pipeline-risco-credito/
    ```bash
    uv run python -m src.run_pipeline
    ```
-
----
-
-## 📌 Comandos Rápidos de Versionamento (Git)
-
-```bash
-git init
-git branch -M main
-git remote add origin https://github.com/HilarioGouveia/pipeline-risco-credito.git
-git add .
-git commit -m "docs: add executive readme, architecture diagram and gitignore"
-git push -u origin main
-```

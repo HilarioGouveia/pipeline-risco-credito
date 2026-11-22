@@ -1,10 +1,36 @@
-# Python-generated files
+# Python & Ambientes Virtuais
 __pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
 
-# Virtual environments
-.venv
+# Gerenciador UV
+.uv/
+*.egg-info/
+dist/
+build/
+
+# Dados Intermediários e Artefatos Gerados (Medallion Silver/Gold e Modelos)
+data/silver/*.parquet
+data/gold/*.parquet
+artifacts/*.joblib
+artifacts/models/*.joblib
+artifacts/reports/*.json
+
+# Logs, Caches e Testes
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# IDEs e Sistema Operacional
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
