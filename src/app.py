@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import streamlit as st
 import pandas as pd
 
@@ -7,6 +14,7 @@ from src.fase3_feature_engineering import run_feature_engineering
 from src.fase4_data_split import prepare_modeling_datasets
 from src.fase5_modelagem import train_and_benchmark_models
 from src.fase6_avaliacao import generate_executive_evaluation
+from src.fase7_inferencia import BUNDLE_PATH, load_inference_bundle, predict_single_applicant
 from src.utils.graficos import (
     plot_boxplots_outliers,
     plot_confusion_matrix_figure,
@@ -31,32 +39,10 @@ def load_pipeline_artifacts():
     gold = run_feature_engineering(silver["df_silver"], persist=True)
     split_data = prepare_modeling_datasets(gold["df_gold"])
     modeling = train_and_benchmark_models(split_data)
+    # Persiste automaticamente o bundle inicial (melhor KNN + melhor Árvore + transformadores)
+    generate_executive_evaluation(modeling, split_data=split_data, persist_best=True)
     return eda, silver, gold, split_data, modeling
 
-
-st.sidebar.title("🏦 Risco de Crédito")
-st.sidebar.caption("Arquitetura Medallion • Scikit-Learn • UV")
-
-fase = st.sidebar.radio(
-    "Navegue pelas Fases do Projeto:",
-    [
-        "Fase 1 - EDA (Bronze)",
-        "Fase 2 - Data Prep (Silver)",
-        "Fase 3 - Feature Engineering (Gold)",
-        "Fase 4 - Split, SMOTE e Escala",
-        "Fase 5 - Modelagem e Overfitting",
-        "Fase 6 - Avaliação e Veredito",
-    ],
-)
-
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "**Fluxo Anti-Leakage:**\n"
-    "1. Sanitização estrutural (Silver)\n"
-    "2. Split estratificado 80/20\n"
-    "3. Mediana, IQR Clipping & SMOTE apenas no Treino\n"
-    "4. StandardScaler exclusivo para KNN"
-)
 
 try:
     eda, silver, gold, split_data, modeling = load_pipeline_artifacts()
@@ -64,12 +50,15 @@ except FileNotFoundError as exc:
     st.error(str(exc))
     st.stop()
 
+
 # ==============================================================================
-# FASE 1: EDA
+# PÁGINA 1: EDA (BRONZE)
 # ==============================================================================
-if fase == "Fase 1 - EDA (Bronze)":
+def page_fase1():
     st.title("Fase 1: Análise Exploratória de Dados (Camada Bronze)")
-    tab1, tab2, tab3, tab4 = st.tabs(["Dimensões e Tipos", "Sumário Estatístico", "Gráficos Exploratórios", "Diagnóstico Analítico"])
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["Dimensões e Tipos", "Sumário Estatístico", "Gráficos Exploratórios", "Diagnóstico Analítico"]
+    )
 
     with tab1:
         c1, c2, c3, c4 = st.columns(4)
@@ -105,12 +94,15 @@ if fase == "Fase 1 - EDA (Bronze)":
         st.subheader("Anomalias Identificadas na Base Bruta")
         st.json(eda["anomalies"])
 
+
 # ==============================================================================
-# FASE 2: DATA PREP
+# PÁGINA 2: DATA PREP (SILVER)
 # ==============================================================================
-elif fase == "Fase 2 - Data Prep (Silver)":
+def page_fase2():
     st.title("Fase 2: Tratamento, Limpeza e Sanitização (Camada Silver)")
-    tab1, tab2, tab3, tab4 = st.tabs(["Duplicados e Inconsistências", "Nulos e Justificativas", "Outliers (Boxplots)", "Dataset Silver"])
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["Duplicados e Inconsistências", "Nulos e Justificativas", "Outliers (Boxplots)", "Dataset Silver"]
+    )
 
     with tab1:
         c1, c2, c3, c4 = st.columns(4)
@@ -142,10 +134,11 @@ elif fase == "Fase 2 - Data Prep (Silver)":
         st.subheader("Amostra da Camada Silver (`data/silver/silver_credit_risk.parquet`)")
         st.dataframe(silver["df_silver"].head(50), use_container_width=True)
 
+
 # ==============================================================================
-# FASE 3: FEATURE ENGINEERING
+# PÁGINA 3: FEATURE ENGINEERING (GOLD)
 # ==============================================================================
-elif fase == "Fase 3 - Feature Engineering (Gold)":
+def page_fase3():
     st.title("Fase 3: Engenharia de Atributos (Camada Gold)")
     tab1, tab2, tab3 = st.tabs(["Variáveis Criadas", "Correlação com Alvo", "Dataset Gold"])
 
@@ -168,10 +161,11 @@ elif fase == "Fase 3 - Feature Engineering (Gold)":
         st.subheader("Amostra da Camada Gold (`data/gold/gold_credit_risk.parquet`)")
         st.dataframe(gold["df_gold"].head(50), use_container_width=True)
 
+
 # ==============================================================================
-# FASE 4: SPLIT, BALANCEAMENTO E ESCALONAMENTO
+# PÁGINA 4: SPLIT, SMOTE E ESCALA
 # ==============================================================================
-elif fase == "Fase 4 - Split, SMOTE e Escala":
+def page_fase4():
     st.title("Fase 4: Separação Estratificada, SMOTE e Escalonamento Seguro")
     tab1, tab2, tab3 = st.tabs(["Split e Encoding", "Balanceamento (SMOTE)", "Escalonamento (KNN vs Árvore)"])
 
@@ -196,10 +190,11 @@ elif fase == "Fase 4 - Split, SMOTE e Escala":
             st.subheader("Entrada Árvore (Escala Original)")
             st.dataframe(split_data["X_train_tree"].head(10), use_container_width=True)
 
+
 # ==============================================================================
-# FASE 5: MODELAGEM E OVERFITTING
+# PÁGINA 5: MODELAGEM E OVERFITTING
 # ==============================================================================
-elif fase == "Fase 5 - Modelagem e Overfitting":
+def page_fase5():
     st.title("Fase 5: Experimentação e Diagnóstico de Overfitting")
     results_df = modeling["results_df"]
 
@@ -219,19 +214,27 @@ elif fase == "Fase 5 - Modelagem e Overfitting":
     with tab3:
         st.pyplot(plot_overfitting_curve(results_df, "Árvore de Decisão"))
 
+
 # ==============================================================================
-# FASE 6: AVALIAÇÃO E VEREDITO DE NEGÓCIO
+# PÁGINA 6: AVALIAÇÃO E VEREDITO
 # ==============================================================================
-elif fase == "Fase 6 - Avaliação e Veredito":
+def page_fase6():
     st.title("Fase 6: Avaliação Final, Impacto Financeiro e Veredito Executivo")
 
     st.sidebar.markdown("### Parâmetros Financeiros (Simulador)")
-    avg_loan = st.sidebar.number_input("Ticket Médio do Empréstimo (US$)", min_value=1000.0, max_value=50000.0, value=9500.0, step=500.0)
+    avg_loan = st.sidebar.number_input(
+        "Ticket Médio do Empréstimo (US$)", min_value=1000.0, max_value=50000.0, value=9500.0, step=500.0
+    )
     lgd = st.sidebar.slider("Perda Dado o Calote — LGD (%)", min_value=10, max_value=100, value=65, step=5) / 100.0
     nim = st.sidebar.slider("Margem Líquida de Juros — NIM (%)", min_value=5, max_value=40, value=14, step=1) / 100.0
 
     eval_data = generate_executive_evaluation(
-        modeling, avg_loan=avg_loan, lgd=lgd, net_interest_margin=nim, persist_best=True
+        modeling,
+        split_data=split_data,
+        avg_loan=avg_loan,
+        lgd=lgd,
+        net_interest_margin=nim,
+        persist_best=True,
     )
 
     tab1, tab2, tab3 = st.tabs(["Matrizes e Reports", "Simulação Financeira (FN vs FP)", "Veredito Executivo"])
@@ -263,3 +266,160 @@ elif fase == "Fase 6 - Avaliação e Veredito":
         st.success(f"### MODELO RECOMENDADO PARA PRODUÇÃO: {verdict['recommended_model']}")
         for reason in verdict["reasons"]:
             st.markdown(f"- {reason}")
+        st.caption(f"Artefatos persistidos em: `{eval_data['bundle_path']}` (inclui melhor Árvore, melhor KNN, Preprocessor e Scaler).")
+
+
+# ==============================================================================
+# PÁGINA 7: INFERÊNCIA (SIMULADOR DE CRÉDITO)
+# ==============================================================================
+def page_fase7():
+    st.title("Fase 7: Inferência em Tempo Real — Simulador de Análise de Crédito")
+    st.markdown(
+        "Submeta os dados de um novo solicitante para comparar lado a lado a predição das **melhores versões persistidas** "
+        "da **Árvore de Decisão** e do **KNN**."
+    )
+
+    try:
+        bundle = load_inference_bundle(BUNDLE_PATH)
+    except FileNotFoundError as exc:
+        st.error(str(exc))
+        st.stop()
+
+    with st.form("form_inferencia_credito"):
+        st.subheader("1. Perfil Socioeconômico do Solicitante")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            person_age = st.number_input("Idade (anos)", min_value=18, max_value=80, value=28, step=1)
+        with col2:
+            person_income = st.number_input("Renda Anual (US$)", min_value=1000.0, max_value=2000000.0, value=55000.0, step=1000.0)
+        with col3:
+            max_emp = max(0, person_age - 14)
+            person_emp_length = st.number_input(
+                "Tempo de Emprego (anos)", min_value=0.0, max_value=float(max_emp), value=min(4.0, float(max_emp)), step=0.5
+            )
+        with col4:
+            person_home_ownership = st.selectbox(
+                "Situação da Moradia", ["RENT", "MORTGAGE", "OWN", "OTHER"], index=0
+            )
+
+        st.subheader("2. Histórico de Crédito")
+        col5, col6 = st.columns(2)
+        with col5:
+            cb_person_cred_hist_length = st.number_input(
+                "Tempo de Histórico de Crédito (anos)", min_value=0, max_value=50, value=4, step=1
+            )
+        with col6:
+            cb_person_default_on_file = st.selectbox(
+                "Histórico de Inadimplência Prévia?",
+                options=["N", "Y"],
+                format_func=lambda x: "N - Não possui calote anterior" if x == "N" else "Y - Possui calote registrado",
+                index=0,
+            )
+
+        st.subheader("3. Condições do Empréstimo Solicitado")
+        col7, col8, col9, col10 = st.columns(4)
+        with col7:
+            loan_amnt = st.number_input("Valor do Empréstimo (US$)", min_value=500.0, max_value=100000.0, value=10000.0, step=500.0)
+        with col8:
+            loan_intent = st.selectbox(
+                "Finalidade do Empréstimo",
+                ["EDUCATION", "MEDICAL", "VENTURE", "PERSONAL", "DEBTCONSOLIDATION", "HOMEIMPROVEMENT"],
+                index=0,
+            )
+        with col9:
+            loan_grade = st.selectbox("Grau de Risco (Grade)", ["A", "B", "C", "D", "E", "F", "G"], index=1)
+        with col10:
+            loan_int_rate = st.number_input("Taxa de Juros Anual (%)", min_value=1.0, max_value=40.0, value=10.99, step=0.25)
+
+        submitted = st.form_submit_button("Avaliar Risco de Crédito", type="primary", use_container_width=True)
+
+    if submitted:
+        if person_emp_length > (person_age - 14):
+            st.warning(
+                f"Inconsistência detectada: tempo de emprego ({person_emp_length} anos) superior ao limite biológico "
+                f"para idade {person_age} anos ({person_age - 14} anos). Ajuste o campo."
+            )
+            st.stop()
+
+        applicant = {
+            "person_age": person_age,
+            "person_income": person_income,
+            "person_home_ownership": person_home_ownership,
+            "person_emp_length": person_emp_length,
+            "loan_intent": loan_intent,
+            "loan_grade": loan_grade,
+            "loan_amnt": loan_amnt,
+            "loan_int_rate": loan_int_rate,
+            "cb_person_default_on_file": cb_person_default_on_file,
+            "cb_person_cred_hist_length": cb_person_cred_hist_length,
+        }
+
+        res = predict_single_applicant(applicant, bundle)
+        eng = res["engineered_values"]
+
+        st.markdown("---")
+        st.subheader("Features Engenheiradas Calculadas Automaticamente")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Comprometimento de Renda", f"{eng['comprometimento_renda_pct']:.2f}%")
+        m2.metric("Score de Estabilidade", f"{eng['score_estabilidade']:.1f}")
+        m3.metric("Valor por Ano de Crédito", f"US$ {eng['valor_por_ano_credito']:,.2f}")
+
+        if eng["sofreu_clipping_renda"]:
+            st.info(
+                f"Nota técnica: A renda informada (US$ {person_income:,.2f}) excedeu o limite superior IQR do treino "
+                f"e foi ajustada para US$ {eng['renda_apos_clipping']:,.2f} durante o pré-processamento."
+            )
+
+        st.subheader("Resultado Comparativo dos Modelos Persistidos")
+        c_tree, c_knn = st.columns(2)
+
+        with c_tree:
+            badge_tree = " ⭐ (Recomendado)" if res["recommended_key"] == "tree" else ""
+            st.markdown(f"#### 🌳 Árvore de Decisão (`{res['tree']['config']}`){badge_tree}")
+            if res["tree"]["prediction"] == 1:
+                st.error(f"**Veredito:** {res['tree']['label']}")
+            else:
+                st.success(f"**Veredito:** {res['tree']['label']}")
+            st.metric("Probabilidade Estimada de Inadimplência", f"{res['tree']['prob_default_pct']:.2f}%")
+
+        with c_knn:
+            badge_knn = " ⭐ (Recomendado)" if res["recommended_key"] == "knn" else ""
+            st.markdown(f"#### 📍 KNN (`{res['knn']['config']}`){badge_knn}")
+            if res["knn"]["prediction"] == 1:
+                st.error(f"**Veredito:** {res['knn']['label']}")
+            else:
+                st.success(f"**Veredito:** {res['knn']['label']}")
+            st.metric("Probabilidade Estimada de Inadimplência", f"{res['knn']['prob_default_pct']:.2f}%")
+
+
+# ==============================================================================
+# NAVEGAÇÃO PRINCIPAL (st.navigation)
+# ==============================================================================
+pg = st.navigation(
+    {
+        "Engenharia de Dados (Medallion)": [
+            st.Page(page_fase1, title="Fase 1 - EDA (Bronze)", icon="🔍", url_path="fase-1-eda", default=True),
+            st.Page(page_fase2, title="Fase 2 - Data Prep (Silver)", icon="🧹", url_path="fase-2-data-prep"),
+            st.Page(page_fase3, title="Fase 3 - Feature Engineering (Gold)", icon="⚙️", url_path="fase-3-features"),
+        ],
+        "Machine Learning e Negócio": [
+            st.Page(page_fase4, title="Fase 4 - Split, SMOTE e Escala", icon="⚖️", url_path="fase-4-split"),
+            st.Page(page_fase5, title="Fase 5 - Modelagem e Overfitting", icon="📈", url_path="fase-5-modelagem"),
+            st.Page(page_fase6, title="Fase 6 - Avaliação e Veredito", icon="🏆", url_path="fase-6-avaliacao"),
+        ],
+        "Produção": [
+            st.Page(page_fase7, title="Fase 7 - Inferência (Simulador)", icon="🚀", url_path="fase-7-inferencia"),
+        ],
+    }
+)
+
+st.sidebar.markdown("---")
+st.sidebar.info(
+    "**Fluxo Anti-Leakage:**\n"
+    "1. Sanitização estrutural (Silver)\n"
+    "2. Split estratificado 80/20\n"
+    "3. Mediana, IQR Clipping & SMOTE apenas no Treino\n"
+    "4. StandardScaler exclusivo para KNN"
+)
+
+pg.run()

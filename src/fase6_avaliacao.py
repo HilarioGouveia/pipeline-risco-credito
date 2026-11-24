@@ -3,9 +3,12 @@ import pandas as pd
 from src.config import ARTIFACTS_DIR
 from src.utils.metricas import simulate_financial_impact
 
+BUNDLE_PATH = ARTIFACTS_DIR / "inference_bundle.joblib"
+
 
 def generate_executive_evaluation(
     model_results: dict,
+    split_data: dict | None = None,
     avg_loan: float = 9500.0,
     lgd: float = 0.65,
     net_interest_margin: float = 0.14,
@@ -13,16 +16,23 @@ def generate_executive_evaluation(
 ) -> dict:
     """
     Fase 6: Consolida Classification Reports, Matrizes de Confusão,
-    Simulação de Impacto Financeiro (FN vs FP) e Veredito Executivo.
+    Simulação de Impacto Financeiro (FN vs FP), Veredito Executivo e
+    persiste o bundle completo de inferência (melhor KNN + melhor Árvore + pré-processadores).
     """
     best_knn_metrics = model_results["best_knn"]["metrics"]
     best_tree_metrics = model_results["best_tree"]["metrics"]
 
     fin_knn = simulate_financial_impact(
-        best_knn_metrics["confusion_matrix"], avg_loan=avg_loan, lgd=lgd, net_interest_margin=net_interest_margin
+        best_knn_metrics["confusion_matrix"],
+        avg_loan=avg_loan,
+        lgd=lgd,
+        net_interest_margin=net_interest_margin,
     )
     fin_tree = simulate_financial_impact(
-        best_tree_metrics["confusion_matrix"], avg_loan=avg_loan, lgd=lgd, net_interest_margin=net_interest_margin
+        best_tree_metrics["confusion_matrix"],
+        avg_loan=avg_loan,
+        lgd=lgd,
+        net_interest_margin=net_interest_margin,
     )
 
     comparison_df = pd.DataFrame([
@@ -56,7 +66,6 @@ def generate_executive_evaluation(
         },
     ])
 
-    # Critério de decisão corporativa: menor impacto financeiro / maior F1 na classe 1
     tree_wins = (
         best_tree_metrics["F1_Teste_C1"] >= best_knn_metrics["F1_Teste_C1"]
         or fin_tree["Impacto_Financeiro_Total"] <= fin_knn["Impacto_Financeiro_Total"]
@@ -64,16 +73,29 @@ def generate_executive_evaluation(
 
     if tree_wins:
         winner_name = f"Árvore de Decisão ({best_tree_metrics['Configuracao']})"
-        winner_model = model_results["best_tree"]["model"]
+        winner_key = "tree"
     else:
         winner_name = f"KNN ({best_knn_metrics['Configuracao']})"
-        winner_model = model_results["best_knn"]["model"]
+        winner_key = "knn"
 
     if persist_best:
-        joblib.dump(winner_model, ARTIFACTS_DIR / "best_credit_risk_model.joblib")
+        ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+        bundle = {
+            "best_knn_model": model_results["best_knn"]["model"],
+            "best_knn_config": best_knn_metrics["Configuracao"],
+            "best_tree_model": model_results["best_tree"]["model"],
+            "best_tree_config": best_tree_metrics["Configuracao"],
+            "recommended_model_key": winner_key,
+            "recommended_model_name": winner_name,
+            "preprocessor": split_data["preprocessor"] if split_data else None,
+            "scaler": split_data["scaler"] if split_data else None,
+            "income_clip_bounds": split_data["income_clip_bounds"] if split_data else None,
+        }
+        joblib.dump(bundle, BUNDLE_PATH)
 
     verdict = {
         "recommended_model": winner_name,
+        "recommended_key": winner_key,
         "reasons": [
             f"Superioridade no equilíbrio entre precisão e captura de inadimplentes (F1 Classe 1: {best_tree_metrics['F1_Teste_C1']:.4f} vs {best_knn_metrics['F1_Teste_C1']:.4f}).",
             f"Controle de overfitting com profundidade limitada ({best_tree_metrics['Configuracao']}), evitando a memorização observada em max_depth=None.",
@@ -89,4 +111,5 @@ def generate_executive_evaluation(
         "fin_tree": fin_tree,
         "comparison_df": comparison_df,
         "verdict": verdict,
+        "bundle_path": str(BUNDLE_PATH),
     }
